@@ -231,7 +231,7 @@ Antes de continuar, es importante entender la función de los archivos principal
 3. Ahora se debe informar a **Django** que la **aplicación game** forma parte del proyecto. Abrir **settings.py** y buscar la sección **INSTALLED_APPS**. Añadir **game** al final de la **lista**:
 	```
 	INSTALLED_APPS = [
-		'django.contrib.admin',
+	'django.contrib.admin',
 	    'django.contrib.auth',
 	    'django.contrib.contenttypes',
 	    'django.contrib.sessions',
@@ -256,7 +256,7 @@ Definir las **tablas** principales para el juego usando **modelos** de **Django*
 
 ### Paso 1: Planificación de los modelos. ###
 
-Para organizar la estructura de datos del juego, se identificarán los elementos Antes de utilizar los **modelos** que se crean en esta parte, tendremos que eliminar de la **base de datos** ciertos datos de la **migración** anterior ya que si no se hace se generara un error en el **orden** de la **migración**.
+Para organizar la estructura de datos del juego, se identificarán los elementos. Antes de utilizar los **modelos** que se crean en esta parte, tendremos que eliminar de la **base de datos** ciertos datos de la **migración** anterior ya que si no se hace se generara un error en el **orden** de la **migración**.
 ```
 mysql -u root -p
 
@@ -348,8 +348,7 @@ Cada **personaje** puede tener varios **objetos** en su **inventario**.
 * En **models.py**, añadir el **modelo** de **Inventario**:
     ```
     class Inventario(models.Model):
-    	personaje = models.ForeignKey('Character'
-    	, on_delete=models.CASCADE)
+    	personaje = models.ForeignKey('Character', on_delete=models.CASCADE)
     	item = models.ForeignKey(Item, on_delete=models.CASCADE)
     	cantidad = models.IntegerField(default=1)
     
@@ -444,3 +443,171 @@ Para registrar las batallas entre **personajes**, se puede crear un **modelo** q
     Seguir las indicaciones para configurar el nombre de usuario, correo electrónico y contraseña.
 
 3. Iniciar el **servidor** `python manage.py runserver` de desarrollo y acceder al **panel de administración** en http://127.0.0.1:8000/admin. Iniciar sesión con el **superusuario** y revisar los **modelos** registrados en el **panel de administración**.
+
+## Parte 4: Crear Vistas y Rutas Básicas en Django. ##
+
+### Objetivo: ###
+
+Crear **vistas** y **rutas** que permitan a los **usuarios**:
+* Ver el **perfil** de su **personaje**.
+* Consultar su **inventario**.
+* Llevar a cabo una **batalla** entre **personajes**.
+
+### Paso 1: Configurar las URLs de la Aplicación game. ###
+
+Para organizar las **rutas**, se empezará creando un archivo de URL específico para la **aplicación game**:
+
+1. Dentro de la carpeta **game**, crear un archivo llamado **urls.py**.
+
+2. En **urls.py**, definir las **rutas** que se van a usar inicialmente:
+	```
+	from django.urls import path
+	from . import views
+	
+	urlpatterns = [
+		path('perfil/', views.perfil_personaje, name='perfil_personaje'),
+		path('inventario/', views.inventario, name='inventario'),
+		path('batalla/', views.batalla, name='batalla'),
+	]
+	```
+	* **perfil/**: **Ruta** para ver el **perfil** del **personaje**.
+	* **inventario/**: **Ruta** para ver el **inventario** del **personaje**.
+	* **batalla/**: **Ruta** para llevar a cabo una **batalla**.	
+
+3. Luego, incluir estas **rutas** en la configuración principal de URLs del proyecto. Ir al archivo **urls.py** en la carpeta principal del proyecto y añade la **ruta** para **game**:
+	```
+	from django.contrib import admin
+	from django.urls import path, include
+	
+	urlpatterns = [
+		path('admin/', admin.site.urls),
+		path('game/', include('game.urls')),
+	]
+	``` 
+	Con esta configuración, nuestras **rutas** quedarán accesibles como **/game/perfil/**, **/game/inventario/**, y **/game/batalla/**.
+
+### Paso 2: Crear las Vistas en views.py. ###
+
+Crear las **vistas** en **views.py** dentro de la **aplicación game**.
+
+1. **Vista** del **Perfil** del **Personaje**
+
+	La **vista** mostrará la información del **personaje** del **usuario**. 
+
+	En **views.py**, añadir el siguiente código:
+	```   	
+	from django.shortcuts import render, get_object_or_404
+	from django.contrib.auth.decorators import login_required
+	from .models import Character
+	
+	@login_required
+	def perfil_personaje(request):
+		# Obtener el personaje del usuario
+		personaje = get_object_or_404(Character, usuario=request.user)
+		return render(request, 'game/perfil.html', {'personaje': personaje})
+	```
+	* **@login_required**: Restringe el acceso a la **vista** solo para **usuarios** autenticados.
+	* **get_object_or_404**: Obtiene el **personaje** del **usuario** actual o muestra un error si no se encuentra.
+
+2. **Vista** del **Inventario**
+
+    La **vista** del **inventario** mostrará los objetos que posee el **personaje**.
+    
+    En **views.py**, añadir la siguiente función:
+    ```
+    from .models import Inventario
+    
+    @login_required
+    	def inventario(request):
+    	personaje = get_object_or_404(Character, usuario=request.user)
+    	inventario = Inventario.objects.filter(personaje=personaje)
+    	return render(request, 'game/inventario.html', {'inventario': inventario, 'personaje': personaje})
+    ```
+	* **Inventario.objects.filter(personaje=personaje)**: Obtiene todos los objetos que el **personaje** tiene en su **inventario**.
+
+3. **Vista** de **Batalla**
+
+	Esta **vista** permite simular una **batalla** entre el **personaje** del **usuario** y otro **personaje**.
+
+	Añadir esta función en **views.py**:
+    ```
+    from django.http import HttpResponseRedirect
+    from django.urls import reverse
+    import random
+    
+    @login_required
+    	def batalla(request):
+    		personaje = get_object_or_404(Character, usuario=request.user)
+    		enemigo = Character.objects.exclude(usuario=request.user).order_by('?').first()  # Selecciona un enemigo al azar
+    		if enemigo:
+    			# Simulación simple de combate
+    			resultado = random.choice(['victoria', 'derrota'])
+    			if resultado == 'victoria':
+    				personaje.experiencia += 10
+    				personaje.oro += 5
+    				personaje.save()
+    				return render(request, 'game/batalla.html', {'personaje': personaje, 'enemigo': enemigo, 'resultado': resultado})
+    			else:
+    				return render(request, 'game/batalla.html', {'personaje': personaje, 'enemigo': enemigo, 'resultado': resultado})
+    		else:
+    			return HttpResponseRedirect(reverse('perfil_personaje'))
+    ```
+	* Character.objects.exclude(usuario=request.user).order_by('?').first(): Selecciona un enemigo al azar entre los personajes que no son del usuario actual.
+	* Resultado de batalla: Se usa random.choice() para decidir aleatoriamente el resultado de la batalla.
+
+### Paso 3: Crear las Plantillas HTML. ###
+
+Crear las **plantillas HTML** para visualizar el **perfil** del **personaje**, el **invbentario**, y el resultado de la **batalla**.
+
+* Crear una carpeta llamada **templates** dentro de la carpeta **game**, y dentro de esta, una subcarpeta llamada **game**. Colocar las siguientes plantillas dentro de **game/templates/game**.
+
+1. **Plantilla** de **Perfil** del **Personaje** (perfil.html)
+    ```
+    <!-- perfil.html -->
+    <h1>Perfil de {{ personaje.nombre }}</h1>
+    <p>Salud: {{ personaje.salud }}</p>
+    <p>Fuerza: {{ personaje.fuerza }}</p>
+    <p>Defensa: {{ personaje.defensa }}</p>
+    <p>Nivel: {{ personaje.nivel }}</p>
+    <p>Experiencia: {{ personaje.experiencia }}</p>
+    <p>Oro: {{ personaje.oro }}</p>
+    <a href="{% url 'inventario' %}">Ver Inventario</a>
+    <a href="{% url 'batalla' %}">Ir a Batalla</a>
+    ```   
+2. **Plantilla** del **Inventario** (inventario.html)
+    ```
+    <!-- inventario.html -->
+    <h1>Inventario de {{ personaje.nombre }}</h1>
+    <ul>
+    	{% for item in inventario %}
+    		<li>{{ item.cantidad }}x {{ item.item.nombre }} ({{ item.item.descripcion }})</li>
+    	{% endfor %}
+    </ul>
+    <a href="{% url 'perfil_personaje' %}">Volver al Perfil</a>
+    ```
+3. **Plantilla** de **Batalla** (batalla.html)
+    ```
+    <!-- batalla.html -->
+    <h1>Batalla entre {{ personaje.nombre }} y {{ enemigo.nombre }}</h1>
+    <p>Resultado: {{ resultado }}</p>
+    	{% if resultado == 'victoria' %}
+    		<p>¡Has ganado! Experiencia y oro aumentados.</p>
+    	{% else %}
+    		<p>Has sido derrotado.</p>
+    	{% endif %}
+    <a href="{% url 'perfil_personaje' %}">Volver al Perfil</a>
+    ```
+
+### Paso 4: Probar las Vistas en el Navegador. ###
+
+1. Iniciar sesión con el **superusuario** http://127.0.0.1:8000/admin.
+
+2. Crear un **usuario** y dos **characters** para relacionar (Uno con el **superusuario** y otro con un **usuario** normal) en la **base de datos** de **Django**.
+
+3. Iniciar el **servidor** de desarrollo:
+    ```
+    python manage.py runserver
+    ```   
+4. Accede a http://127.0.0.1:8000/game/perfil/ para ver el **perfil** del **personaje**
+
+5. Desde el **perfil**, usar los **enlaces** para navegar al **inventario** y a la **batalla** y **verifica** que todo esté funcionando correctamente.
