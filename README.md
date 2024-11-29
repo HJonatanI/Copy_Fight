@@ -231,7 +231,7 @@ Antes de continuar, es importante entender la función de los archivos principal
 3. Ahora se debe informar a **Django** que la **aplicación game** forma parte del proyecto. Abrir **settings.py** y buscar la sección **INSTALLED_APPS**. Añadir **game** al final de la **lista**:
 	```
 	INSTALLED_APPS = [
-	'django.contrib.admin',
+		'django.contrib.admin',
 	    'django.contrib.auth',
 	    'django.contrib.contenttypes',
 	    'django.contrib.sessions',
@@ -608,6 +608,148 @@ Crear las **plantillas HTML** para visualizar el **perfil** del **personaje**, e
     ```
     python manage.py runserver
     ```   
-4. Accede a http://127.0.0.1:8000/game/perfil/ para ver el **perfil** del **personaje**
+4. Accede a http://127.0.0.1:8000/game/perfil/ para ver el **perfil** del **personaje**.
 
 5. Desde el **perfil**, usar los **enlaces** para navegar al **inventario** y a la **batalla** y **verifica** que todo esté funcionando correctamente.
+
+## Parte 5: Mejorar Lógica de Batalla y Sistema de Nivelación. ##
+
+### Objetivo: ###
+
+* Mejorar la lógica de **batalla** para que sea más detallada y realista.
+* Implementar un sistema de progresión para que el **personaje** suba de nivel cuando acumule suficiente experiencia.
+* Añadir mejoras visuales en las plantillas de batalla para mostrar más información sobre el combate.
+
+## Paso 1: Mejorar la Lógica de Batalla. ##
+
+En el paso anterior, la lógica de **batalla** se decidía al azar. Ahora se implementará una mecánica más detallada en la que se tome en cuenta la fuerza y la defensa de cada **personaje**. 
+
+1. Mejorar en **views.py** la función **batalla** para que el combate sea más complejo.
+
+	Actualiza la función **batalla** en **views.py** de la siguiente manera:
+	```
+	@login_required
+	def batalla(request):
+		personaje = get_object_or_404(Character, usuario=request.user)
+		enemigo = Character.objects.exclude(usuario=request.user).order_by('?').first()
+		if enemigo:
+			# Variables de combate
+			personaje_ataque = personaje.fuerza - (enemigo.defensa * 0.5)
+			enemigo_ataque = enemigo.fuerza - (personaje.defensa * 0.5)
+			# Determina el daño mínimo
+			personaje_ataque = max(1, personaje_ataque)
+			enemigo_ataque = max(1, enemigo_ataque)
+			# Registro de eventos de combate 
+			log_combate = []
+			# Realiza el combate
+			while personaje.salud > 0 and enemigo.salud > 0:
+				# Turno del personaje
+				enemigo.salud -= personaje_ataque
+				log_combate.append(f"{personaje.nombre} inflige {personaje_ataque} de daño a {enemigo.nombre}. Salud restante del enemigo: {enemigo.salud}")
+				if enemigo.salud <= 0:
+					resultado = 'victoria'
+					break
+				# Turno del enemigo
+				personaje.salud -= enemigo_ataque
+				log_combate.append(f"{enemigo.nombre} inflige {enemigo_ataque} de daño a {personaje.nombre}. Salud restante del personaje: {personaje.salud}")
+				if personaje.salud <= 0:
+					resultado = 'derrota'
+					break
+			# Procesa el resultado
+			if resultado == 'victoria':
+				personaje.experiencia += 20
+				personaje.oro += 10
+				enemigo.salud = max(1, enemigo.salud)  # Evita que llegue a 0
+			else:
+				personaje.salud = max(1, personaje.salud)  # Evita que llegue a 0
+        	personaje.save()
+        	enemigo.save()
+			return render(request, 'game/batalla.html', {
+               				'personaje': personaje,
+               				'enemigo': enemigo,
+               				'resultado': resultado,
+					'log_combate': log_combate
+        	})
+		else:
+			return HttpResponseRedirect(reverse('perfil_personaje'))
+	```
+
+#### Explicación del Código: ####
+
+* Se calcula el poder de ataque del **personaje** y el **enemigo** considerando su fuerza y la defensa del oponente.
+* La **batalla** se realiza en turnos. En cada turno, el **personaje** y el **enemigo** reciben daño.
+* Si el **personaje** gana, se le otorgan experiencia y oro adicionales. Si pierde, su salud se reduce, pero se asegura que nunca llegue a cero (esto puede modificarse).
+
+### Paso 2: Implementar el Sistema de Nivelación. ###
+
+Para hacer que el **personaje** suba de nivel cuando alcanza cierta cantidad de experiencia, se creará un sistema básico de niveles.
+
+1. Ir al **modelo** **Character** en **models.py** y asegúrase de tener los siguientes campos:
+	```
+	nivel = models.IntegerField(default=1)
+	experiencia = models.IntegerField(default=0)
+	experiencia_necesaria = models.IntegerField(default=100)
+	```
+	* Recordar hacer la migracion despues antes de abrir el server.
+
+2. Modificar el método de **batalla** para que el personaje suba de nivel automáticamente cuando alcance suficiente experiencia. Se añadirá una función llamada `subir_nivel` en el modelo `Character`:
+	```
+	def subir_nivel(self):
+		if self.experiencia >= self.experiencia_necesaria:
+			self.nivel += 1
+			self.experiencia -= self.experiencia_necesaria
+			self.experiencia_necesaria += 50  # Incrementa la experiencia necesaria en cada nivel
+			self.salud += 10  # Aumenta la salud
+			self.fuerza += 2  # Aumenta la fuerza
+			self.defensa += 1  # Aumenta la defensa
+			self.save()
+	```
+3. Luego, llamar a **subir_nivel** después de actualizar la experiencia del **personaje** en la función **batalla** de **views.py**:
+	```
+	if resultado == 'victoria':
+		personaje.experiencia += 20
+		personaje.oro += 10
+		personaje.subir_nivel()
+	```
+
+### Paso 3: Actualizar la Plantilla de Batalla para Mostrar Más Información. ###
+
+Se actualizará la **plantilla** **batalla.html** para mostrar más detalles sobre la **batalla** y la progresión del **personaje**.
+
+1. Abrir **batalla.html** en la carpeta **templates/game** y actualízarla de la siguiente manera:
+	```
+	<h1>Batalla entre {{ personaje.nombre }} y {{ enemigo.nombre }}</h1>
+	<p><strong>Resultado:</strong> {{ resultado }}</p>
+	<h2>Registro de Combate</h2> 
+	<ul> {% for evento in log_combate %} 
+		<li>{{ evento }}</li> 
+	{% endfor %} </ul>
+	<h2>Estado Final del Combate</h2>
+	<p>{{ personaje.nombre }} - Salud: {{ personaje.salud }} | Fuerza: {{ personaje.fuerza }} | Defensa: {{ personaje.defensa }} | Nivel: {{ personaje.nivel }}</p>
+	<p>{{ enemigo.nombre }} - Salud: {{ enemigo.salud }} | Fuerza: {{ enemigo.fuerza }} | Defensa: {{ enemigo.defensa }}</p>
+	{% if resultado == 'victoria' %}
+		<p>¡Has ganado! Experiencia ganada: 20 puntos. Oro ganado: 10.</p>
+		<p>Nueva Experiencia: {{ personaje.experiencia }} / {{ personaje.experiencia_necesaria }}</p>
+		<p>Nivel: {{ personaje.nivel }}</p>
+	{% else %}
+		<p>Has sido derrotado. Vuelve a intentarlo.</p>
+	{% endif %}
+	<a href="{% url 'perfil_personaje' %}">Volver al Perfil</a>
+	```
+
+#### En esta plantilla: ####
+
+* Se muestra el estado final del **personaje** y el **enemigo**.
+* Si el **personaje** gana, se actualizan los puntos de experiencia y oro.
+* El progreso hacia el siguiente nivel se muestra en la **sección** de experiencia.
+
+### Paso 4: Probar el Sistema de Batalla y Nivelación ###
+
+1. Ejecutar el **Servidor** y acceder a la **batalla** nuevamente:
+	```
+	python manage.py runserver
+	```
+2. En la **interfaz** de **usuario**, navegar a `/game/batalla/` y verifica que:
+	* La **batalla** muestra el daño infligido por cada **personaje**.
+	* El **personaje** sube de nivel automáticamente al alcanzar la experiencia necesaria.
+	* Los atributos del **personaje**, como salud, fuerza y defensa, aumentan al subir de nivel
